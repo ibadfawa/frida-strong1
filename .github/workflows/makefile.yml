@@ -16,6 +16,6 @@ jobs:
     
     
     - name: Install dependencies
-      run: make
+      run: make core-android-arm64
       
     
