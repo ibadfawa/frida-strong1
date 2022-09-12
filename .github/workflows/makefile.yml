@@ -14,13 +14,13 @@ jobs:
     steps:
   - uses: actions/checkout@v2
 
-  - name: Ndk
+  
   - uses: nttld/setup-ndk@v1
     with:
       ndk-version: r21e
   
-    steps:
-    - uses: actions/checkout@v3
+   
+  - uses: actions/checkout@v3
     
     
       
