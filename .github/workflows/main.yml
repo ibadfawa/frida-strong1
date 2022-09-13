@@ -1,228 +1,278 @@
-name: CI
+name: strongR-frida
 
 on:
-  push:
-    branches:
-      - main
-  pull_request:
-    branches:
-      - main
+  schedule:
+    - cron: "0 9/12 * * *"
+  workflow_dispatch:
 
-jobs:
-  windows-toolchain:
-    runs-on: windows-latest
-    steps:
-      - name: Checkout monorepo
-        uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
-          submodules: true
-      - name: Set up environment
-        uses: ./.github/actions/setup-windows-env
-        with:
-           aws-access-key-id: ${{ secrets.S3_ACCESS_KEY }}
-           aws-secret-access-key: ${{ secrets.S3_SECRET_KEY }}
-           cloudflare-email: ${{ secrets.CF_EMAIL }}
-           cloudflare-token: ${{ secrets.CF_TOKEN }}
-      - name: Roll toolchain
-        run: python releng\deps.py roll toolchain windows-x86
+jobs: 
+  check_version:
+    runs-on: ubuntu-20.04
 
-  windows-sdk:
-    runs-on: windows-latest
-    needs: windows-toolchain
-    strategy:
-      matrix:
-        arch: [x86_64, x86]
-        config: [release, debug]
-      fail-fast: false
+    outputs:
+      FRIDA_VERSION: ${{ steps.pullFridaLatestRelease.outputs.FRIDA_VERSION }}
+      ALREADY_RELEASE: ${{ steps.checkReleaseVersion.outputs.ALREADY_RELEASE }}
     steps:
-      - name: Checkout monorepo
-        uses: actions/checkout@v3
+      - name: Pull Frida Latest Release
+        id: pullFridaLatestRelease
+        uses: actions/github-script@v3.1.0
         with:
-          fetch-depth: 0
-          submodules: true
-      - name: Set up environment
-        uses: ./.github/actions/setup-windows-env
+          github-token: ${{secrets.GITHUB_TOKEN}}
+          script: |
+            const releaseResponse = await github.repos.getLatestRelease({
+              owner: 'frida',
+              repo: 'frida',
+            })
+            const {
+              data: { tag_name: ver }
+            } = releaseResponse;
+            core.setOutput('FRIDA_VERSION', ver);
+      - name: Check release version
+        id: checkReleaseVersion
+        uses: actions/github-script@v3.1.0
         with:
-           aws-access-key-id: ${{ secrets.S3_ACCESS_KEY }}
-           aws-secret-access-key: ${{ secrets.S3_SECRET_KEY }}
-           cloudflare-email: ${{ secrets.CF_EMAIL }}
-           cloudflare-token: ${{ secrets.CF_TOKEN }}
-      - name: Roll SDK
-        run: python releng\deps.py roll sdk windows-${{ matrix.arch }}-${{ matrix.config }} --activate
+          github-token: ${{secrets.GITHUB_TOKEN}}
+          script: |
+            try {
+              const releaseVersion = '${{ steps.pullFridaLatestRelease.outputs.FRIDA_VERSION }}'
+              const releaseResponse = await github.repos.getReleaseByTag({
+                owner: '${{ secrets.GIT_OWNER }}',
+                repo: '${{ secrets.GIT_REPO }}',
+                tag: releaseVersion
+              });
+              const {
+                data: { tag_name: ver }
+              } = releaseResponse;
+              if (ver == '${{ steps.pullFridaLatestRelease.outputs.FRIDA_VERSION }}'){
+                  core.setOutput('ALREADY_RELEASE', '1');
+              }
+              else{
+                  core.setOutput('ALREADY_RELEASE', '0');
+              }
+            } catch (e) {
+              if(e.message == 'Not Found'){
+                core.setOutput('ALREADY_RELEASE', '0');
+              }
+              else{
+                core.setFailed(e.message);
+              }
+            }
 
-  linux-toolchain-x86_64:
-    runs-on: ubuntu-latest
-    container: fridadotre/manylinux-x86_64:latest
-    steps:
-      - name: Checkout monorepo
-        uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
-          submodules: true
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v1
-        with:
-          aws-access-key-id: ${{ secrets.S3_ACCESS_KEY }}
-          aws-secret-access-key: ${{ secrets.S3_SECRET_KEY }}
-          aws-region: us-east-1
-      - name: Configure Cloudflare credentials
-        run: |
-          (
-            echo "defaults:"
-            echo "    domain: frida.re"
-            echo "    email: ${{ secrets.CF_EMAIL }}"
-            echo "    token: ${{ secrets.CF_TOKEN }}"
-          ) > ~/.cfcli.yml
-      - name: Configure git
-        run: git config --global --add safe.directory $GITHUB_WORKSPACE
-      - name: Roll toolchain
-        run: releng/deps.py roll toolchain linux-x86_64
 
-  linux-mips:
-    runs-on: ubuntu-18.04
-    strategy:
-      matrix:
-        arch:
-          - id: mips
-            pkg: g++-mips-linux-gnu
-          - id: mipsel
-            pkg: g++-mipsel-linux-gnu
-          - id: mips64
-            pkg: g++-mips64-linux-gnuabi64
-          - id: mips64el
-            pkg: g++-mips64el-linux-gnuabi64
-      fail-fast: false
+  create_release:
+    needs: check_version
+    runs-on: ubuntu-20.04
+    if: needs.check_version.outputs.ALREADY_RELEASE == '0'
+
     steps:
-      - name: Initialize credentials
-        run: |
-          (
-            echo "[default]"
-            echo "access_key = ${{ secrets.S3_ACCESS_KEY }}"
-            echo "secret_key = ${{ secrets.S3_SECRET_KEY }}"
-          ) > ~/.s3cfg
-          (
-            echo "defaults:"
-            echo "    domain: frida.re"
-            echo "    email: ${{ secrets.CF_EMAIL }}"
-            echo "    token: ${{ secrets.CF_TOKEN }}"
-          ) > ~/.cfcli.yml
-      - name: Checkout monorepo
-        uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
-          submodules: true
-      - name: Install Python
-        uses: actions/setup-python@v3
-        with:
-          python-version: '3.10'
-      - name: Dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install ${{ matrix.arch.pkg }}
-          pip3 install \
-            agithub \
-            requests \
-            s3cmd
-          npm install -g cloudflare-cli
-      - name: Roll SDK
-        run: python releng/deps.py roll sdk linux-${{ matrix.arch.id }}
-      - name: Build
-        run: make core-linux-${{ matrix.arch.id }}
-      - name: Release
-        run: python releng/release.py linux-${{ matrix.arch.id }}
+      - uses: actions/create-release@master
+        id: createRelease
+        name: Create Runner Release
         env:
-          GITHUB_TOKEN: ${{ github.token }}
-
-  freebsd-arm64:
-    runs-on: [self-hosted, freebsd, arm64]
-    steps:
-      - name: Initialize credentials
-        run: |
-          (
-            echo "[default]"
-            echo "access_key = ${{ secrets.S3_ACCESS_KEY }}"
-            echo "secret_key = ${{ secrets.S3_SECRET_KEY }}"
-          ) > ~/.s3cfg
-          (
-            echo "defaults:"
-            echo "    domain: frida.re"
-            echo "    email: ${{ secrets.CF_EMAIL }}"
-            echo "    token: ${{ secrets.CF_TOKEN }}"
-          ) > ~/.cfcli.yml
-          echo "//registry.npmjs.org/:_authToken=${{ secrets.NPM_TOKEN }}" > ~/.npmrc
-      - name: Checkout monorepo
-        uses: actions/checkout@v3
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          fetch-depth: 0
-          submodules: true
-      - name: Roll toolchain
-        run: releng/deps.py roll toolchain freebsd-arm64 --activate
-      - name: Roll SDK
-        run: releng/deps.py roll sdk freebsd-arm64
-      - name: Build Gum
-        run: make gum
-      - name: Test Gum
-        run: make check-gum
-      - name: Build Core
-        run: make core
-      - name: Test Core
-        run: make check-core
-      - name: Build Python Bindings
-        run: make python
-      - name: Test Python Bindings
-        run: make check-python
-      - name: Build Node.js Bindings
-        run: make node
-      - name: Test Node.js Bindings
-        run: make check-node
-      - name: Release
-        run: releng/release.py freebsd-arm64
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-          TWINE_USERNAME: ${{ secrets.TWINE_USERNAME }}
-          TWINE_PASSWORD: ${{ secrets.TWINE_PASSWORD }}
+          tag_name: "${{ needs.check_version.outputs.FRIDA_VERSION }}"
+          release_name: "${{ needs.check_version.outputs.FRIDA_VERSION }}"
+          prerelease: false
 
-  qnx:
-    runs-on: ubuntu-latest
-    container: fridadotre/qnx:latest
+  android_build:
+    runs-on: ubuntu-20.04
+    needs: [check_version, create_release]
+
     steps:
-      - name: Initialize credentials
-        run: |
-          (
-            echo "[default]"
-            echo "access_key = ${{ secrets.S3_ACCESS_KEY }}"
-            echo "secret_key = ${{ secrets.S3_SECRET_KEY }}"
-          ) > ~/.s3cfg
-          (
-            echo "defaults:"
-            echo "    domain: frida.re"
-            echo "    email: ${{ secrets.CF_EMAIL }}"
-            echo "    token: ${{ secrets.CF_TOKEN }}"
-          ) > ~/.cfcli.yml
-      - name: Checkout monorepo
-        uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
-          submodules: true
-      - name: Configure git
-        run: git config --global --add safe.directory $GITHUB_WORKSPACE
-      - name: Roll SDK
-        run: releng/deps.py roll sdk qnx-armeabi
-      - name: Build
-        run: make core-qnx-armeabi
-      - name: Test Gum
-        run: |
-          tar -C build/tmp_thin-qnx-armeabi/frida-gum/tests -cf /tmp/runner.tar gum-tests data/
-          /opt/sabrelite/run.sh /tmp/runner.tar /opt/frida/gum-tests
-      - name: Test Core
-        run: |
-          mkdir -p /tmp/pkg
-          cd build/tmp_thin-qnx-armeabi/frida-core
-          cp -a tests/frida-tests tests/labrats/ lib/agent/frida-agent.so /tmp/pkg
-          tar -C /tmp/pkg -cf /tmp/runner.tar .
-          /opt/sabrelite/run.sh /tmp/runner.tar /opt/frida/frida-tests
-      - name: Release
-        run: releng/release.py qnx
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
+    - uses: actions/checkout@v3
+    - uses: actions/setup-node@v3
+      with:
+        node-version: 16
+
+    - uses: fusion-engineering/setup-git-credentials@v2
+      with:
+        credentials: ${{secrets.GIT_CREDENTIALS}}
+
+    - name: set up JDK 1.8
+      uses: actions/setup-java@v1
+      with:
+        java-version: 1.8
+
+    - name: Setup Android NDK
+      id: setup-ndk
+      uses: nttld/setup-ndk@v1.0.6
+      with:
+        ndk-version: r24-beta1
+
+    - name: Set up Python 3.8
+      uses: actions/setup-python@v2
+      with:
+        python-version: 3.8
+
+    - name: install dependencies
+      run: |
+        sudo apt-get update && DEBIAN_FRONTEND=noninteractive sudo apt-get install build-essential tree ninja-build gcc-multilib g++-multilib lib32stdc++-9-dev flex bison xz-utils ruby ruby-dev python3-requests python3-setuptools python3-dev python3-pip libc6-dev libc6-dev-i386 -y
+        sudo gem install fpm -v 1.11.0 --no-document
+        python3 -m pip install lief
+
+    - name: build frida for Android
+      shell: bash
+      run: |
+        git config --global user.name "${{ secrets.GIT_NAME }}"
+        git config --global user.email "${{ secrets.GIT_EMAIL }}"
+        git clone ${{ secrets.PATCH_REPO }}
+        export ANDROID_NDK_ROOT=${{ steps.setup-ndk.outputs.ndk-path }}
+        git clone --recurse-submodules https://github.com/frida/frida
+        cd frida/frida-core
+        git am ../../Patchs/strongR-frida/frida-core/*.patch
+        cd ../
+        make core-android-arm
+        make core-android-arm64
+        make core-android-x86
+        make core-android-x86_64
+
+
+    - name: Check release version
+      id: checkReleaseVersion
+      uses: actions/github-script@v3.1.0
+      with:
+        github-token: ${{secrets.GITHUB_TOKEN}}
+        script: |
+          try {
+            const releaseVersion = '${{ needs.check_version.outputs.FRIDA_VERSION }}'
+            const releaseResponse = await github.repos.getReleaseByTag({
+              owner: '${{ secrets.GIT_OWNER }}',
+              repo: '${{ secrets.GIT_REPO }}',
+              tag: releaseVersion
+            })
+            const {
+              data: { id: releaseId, html_url: htmlUrl, upload_url: uploadUrl }
+            } = releaseResponse;
+            core.setOutput('id', releaseId);
+            core.setOutput('html_url', htmlUrl);
+            core.setOutput('upload_url', uploadUrl);
+            core.setOutput('version', releaseVersion);
+          } catch (e) {
+            core.setFailed(e.message);
+          }
+    - name: package build result for Android
+      shell: bash
+      run: |
+        pushd frida
+        
+        xz build/frida-android-arm/bin/frida-server
+        xz build/frida-android-arm64/bin/frida-server
+        
+        xz build/frida-android-x86/bin/frida-server
+        xz build/frida-android-x86_64/bin/frida-server
+        
+        xz build/frida-android-arm/bin/frida-inject
+        xz build/frida-android-arm64/bin/frida-inject
+        
+        xz build/frida-android-x86/bin/frida-inject
+        xz build/frida-android-x86_64/bin/frida-inject
+        
+        xz build/frida-android-arm/lib/frida/32/frida-gadget.so
+        xz build/frida-android-arm64/lib/frida/64/frida-gadget.so
+        
+        xz build/frida-android-x86/lib/frida/32/frida-gadget.so
+        xz build/frida-android-x86_64/lib/frida/64/frida-gadget.so
+        
+        popd
+        
+    - name: Upload android arm frida-server for strongR-frida
+      uses: actions/upload-release-asset@v1.0.2
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: '${{ steps.checkReleaseVersion.outputs.upload_url }}'
+        asset_path: '${{ github.workspace }}/frida/build/frida-android-arm/bin/frida-server.xz'
+        asset_name: 'hluda-server-${{ needs.check_version.outputs.FRIDA_VERSION }}-android-arm.xz'
+        asset_content_type: application/octet-stream
+
+    - name: Upload android arm64 frida-server for strongR-frida
+      uses: actions/upload-release-asset@v1.0.2
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: '${{ steps.checkReleaseVersion.outputs.upload_url }}'
+        asset_path: '${{ github.workspace }}/frida/build/frida-android-arm64/bin/frida-server.xz'
+        asset_name: 'hluda-server-${{ needs.check_version.outputs.FRIDA_VERSION }}-android-arm64.xz'
+        asset_content_type: application/octet-stream
+
+    - name: Upload android x86 frida-server for strongR-frida
+      uses: actions/upload-release-asset@v1.0.2
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: '${{ steps.checkReleaseVersion.outputs.upload_url }}'
+        asset_path: '${{ github.workspace }}/frida/build/frida-android-x86/bin/frida-server.xz'
+        asset_name: 'hluda-server-${{ needs.check_version.outputs.FRIDA_VERSION }}-android-x86.xz'
+        asset_content_type: application/octet-stream
+
+    - name: Upload android x86_64 frida-server for strongR-frida
+      uses: actions/upload-release-asset@v1.0.2
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: '${{ steps.checkReleaseVersion.outputs.upload_url }}'
+        asset_path: '${{ github.workspace }}/frida/build/frida-android-x86_64/bin/frida-server.xz'
+        asset_name: 'hluda-server-${{ needs.check_version.outputs.FRIDA_VERSION }}-android-x86_64.xz'
+        asset_content_type: application/octet-stream
+        
+    - name: Upload android arm frida-inject for strongR-frida
+      uses: actions/upload-release-asset@v1.0.2
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: '${{ steps.checkReleaseVersion.outputs.upload_url }}'
+        asset_path: '${{ github.workspace }}/frida/build/frida-android-arm/bin/frida-inject.xz'
+        asset_name: 'hluda-inject-${{ needs.check_version.outputs.FRIDA_VERSION }}-android-arm.xz'
+        asset_content_type: application/octet-stream
+        
+    - name: Upload android arm64 frida-inject for strongR-frida
+      uses: actions/upload-release-asset@v1.0.2
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: '${{ steps.checkReleaseVersion.outputs.upload_url }}'
+        asset_path: '${{ github.workspace }}/frida/build/frida-android-arm64/bin/frida-inject.xz'
+        asset_name: 'hluda-inject-${{ needs.check_version.outputs.FRIDA_VERSION }}-android-arm64.xz'
+        asset_content_type: application/octet-stream
+        
+    - name: Upload android x86 frida-inject for strongR-frida
+      uses: actions/upload-release-asset@v1.0.2
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: '${{ steps.checkReleaseVersion.outputs.upload_url }}'
+        asset_path: '${{ github.workspace }}/frida/build/frida-android-x86/bin/frida-inject.xz'
+        asset_name: 'hluda-inject-${{ needs.check_version.outputs.FRIDA_VERSION }}-android-x86.xz'
+        asset_content_type: application/octet-stream
+        
+    - name: Upload android x86_64 frida-inject for strongR-frida
+      uses: actions/upload-release-asset@v1.0.2
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: '${{ steps.checkReleaseVersion.outputs.upload_url }}'
+        asset_path: '${{ github.workspace }}/frida/build/frida-android-x86_64/bin/frida-inject.xz'
+        asset_name: 'hluda-inject-${{ needs.check_version.outputs.FRIDA_VERSION }}-android-arm-x86_64.xz'
+        asset_content_type: application/octet-stream
+    
+    - name: Upload android arm frida-gadget for strongR-frida
+      uses: actions/upload-release-asset@v1.0.2
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: '${{ steps.checkReleaseVersion.outputs.upload_url }}'
+        asset_path: '${{ github.workspace }}/frida/build/frida-android-arm/lib/frida/32/frida-gadget.so.xz'
+        asset_name: 'hluda-gadget-${{ needs.check_version.outputs.FRIDA_VERSION }}-android-arm.so.xz'
+        asset_content_type: application/octet-stream
+
+    - name: Upload android arm64 frida-gadget for strongR-frida
+      uses: actions/upload-release-asset@v1.0.2
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: '${{ steps.checkReleaseVersion.outputs.upload_url }}'
+        asset_path: '${{ github.workspace }}/frida/build/frida-android-arm64/lib/frida/64/frida-gadget.so.xz'
+        asset_name: 'hluda-gadget-${{ needs.check_version.outputs.FRIDA_VERSION }}-android-arm64.so.xz'
+        asset_content_type: application/octet-stream
+   
