@@ -12,7 +12,8 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
+    - name: Cekout
+      uses: actions/checkout@v4
     
     - name: Download Android NDK r25
       run: |
