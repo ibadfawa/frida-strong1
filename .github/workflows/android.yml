@@ -46,10 +46,10 @@ jobs:
       - name: Package build result for Android
         shell: bash
         run: |
-          xz build 
+          tar -cJf frida.xz build/
       - name: uploading
         uses: actions/upload-artifact@v4
         with:
           name: my-artifact
-          path: build.xz
+          path: frida.xz
           compression-level: 0 # no compression
