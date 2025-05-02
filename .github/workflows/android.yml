@@ -24,4 +24,5 @@ jobs:
 
     
     - name: Download Android NDK r25
-      run: ./configure -h
+      run: ./configure --host=android-arm64
+      
