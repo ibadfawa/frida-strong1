@@ -1,0 +1,29 @@
+name: Makefile CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: configure
+      run: ./configure --host=android-arm64
+    - name: install paket
+      run: sudo apt install tree
+
+    - name: Make
+      run: make
+
+    - name: Run check
+      run: ls
+
+    - name: Run distcheck
+      run: tree
