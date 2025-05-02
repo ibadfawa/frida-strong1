@@ -48,7 +48,7 @@ jobs:
       - name: Package build result for Android
         shell: bash
         run: |
-          zip -r -0 frida.xz build/frida-core
+          zip -r -0 frida.xz build/subprojects/frida-core
       - name: uploading
         uses: actions/upload-artifact@v4
         with:
