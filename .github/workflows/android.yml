@@ -43,3 +43,14 @@ jobs:
       - name: Make
         run: make
       
+      - name: Package build result for Android
+        shell: bash
+        run: |
+          xz build 
+      - name: Upload frida-server-arm64
+        uses: actions/upload-artifact@v3
+        with:
+          name: frida-server-arm64.xz
+          path: build.xz
+        
+      
