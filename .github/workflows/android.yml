@@ -40,6 +40,14 @@ jobs:
       - name: configure 
         run: ./configure --host=android-arm64
 
+      - name: Cache build folder
+        uses: actions/cache@v3
+        with:
+          path: build
+          key: ${{ runner.os }}-build-${{ hashFiles('**/Makefile', '**/configure', '**/*.mk') }}
+          restore-keys: |
+            ${{ runner.os }}-build-
+
       - name: Make
         run: make
       - name: Ls
@@ -55,3 +63,11 @@ jobs:
           name: my-artifact
           path: frida.xz
           compression-level: 0 # no compression
+
+      - name: Cache build folder
+        uses: actions/cache@v3
+        with:
+          path: build
+          key: ${{ runner.os }}-build-${{ hashFiles('**/Makefile', '**/configure', '**/*.mk') }}
+          restore-keys: |
+            ${{ runner.os }}-build-
