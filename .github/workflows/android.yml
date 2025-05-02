@@ -14,13 +14,14 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     
+    - name: Download Android NDK r25
+      run: |
+       curl -LO https://dl.google.com/android/repository/android-ndk-r25-linux.zip
+       unzip android-ndk-r25-linux.zip
+       echo ANDROID_NDK_ROOT=${PWD}/android-ndk-r25 >> $GITHUB_ENV
 
     
 
-    - name: Download Android NDK r25
-      run: |
-          curl -LO https://dl.google.com/android/repository/android-ndk-r25-linux.zip
-          unzip android-ndk-r25-linux.zip
-          echo "ANDROID_NDK_ROOT=$PWD/android-ndk
+    
     - name: Download Android NDK r25
       run: ./configure -h
