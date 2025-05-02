@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Cekout
+    
     - uses: actions/checkout@v4
     
     - name: Download Android NDK r25
@@ -31,7 +31,7 @@ jobs:
       run: make
 
     - name: Upload build folder
-    - uses: actions/upload-artifact@v3.1.3
+      uses: actions/upload-artifact@v3.1.3
       with:
         name: frida-build-folder
         path: ../frida/build
