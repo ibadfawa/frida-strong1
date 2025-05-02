@@ -1,6 +1,6 @@
 option('frida_tools',
   type: 'feature',
-  value: 'auto',
+  value: 'disabled',
   description: 'Build CLI tools, like frida, frida-trace, etc.',
 )
 
@@ -30,7 +30,7 @@ option('portal',
 
 option('inject',
   type: 'feature',
-  value: 'auto',
+  value: 'disabled',
   description: 'Build frida-inject',
 )
 
@@ -48,7 +48,7 @@ option('frida_node',
 
 option('frida_python',
   type: 'feature',
-  value: 'auto',
+  value: 'disabled',
   description: 'Build Python bindings',
 )
 
