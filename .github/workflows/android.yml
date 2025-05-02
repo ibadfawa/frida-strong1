@@ -51,12 +51,12 @@ jobs:
       - name: Make
         run: make
       - name: Ls
-        run: ls build
+        run: ls build/subprojects
       
       - name: Package build result for Android
         shell: bash
         run: |
-          zip -r -0 frida.xz build/subprojects/frida-core
+          zip -r -0 frida.xz build/subprojects/frida-core/frida-server
       - name: uploading
         uses: actions/upload-artifact@v4
         with:
