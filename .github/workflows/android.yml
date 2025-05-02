@@ -42,11 +42,13 @@ jobs:
 
       - name: Make
         run: make
+      - name: Ls
+        run: ls build
       
       - name: Package build result for Android
         shell: bash
         run: |
-          tar -cJf frida.xz build/
+          zip -r -0 arsip_store.zip build/frida-core
       - name: uploading
         uses: actions/upload-artifact@v4
         with:
