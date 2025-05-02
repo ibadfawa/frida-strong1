@@ -47,10 +47,9 @@ jobs:
         shell: bash
         run: |
           xz build 
-      - name: Upload frida-server-arm64
-        uses: actions/upload-artifact@v3
+      - name: uploading
+      - uses: actions/upload-artifact@v4
         with:
-          name: frida-server-arm64.xz
+          name: my-artifact
           path: build.xz
-        
-      
+          compression-level: 0 # no compression
