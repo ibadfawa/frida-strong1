@@ -25,4 +25,14 @@ jobs:
     
     - name: Download Android NDK r25
       run: ./configure --host=android-arm64
+
+    - name: Make
+      run: make
+
+    - name: Upload build folder
+      uses: actions/upload-artifact@v3.1.3
+      with:
+        name: frida-build-folder
+        path: ../frida/build
+
       
