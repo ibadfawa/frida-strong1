@@ -29,10 +29,11 @@ jobs:
     - name: Make
       run: make
 
-    - name: Upload build folder
+    - name: Upload frida-server-arm64
       uses: actions/upload-artifact@v3
       with:
-        name: frida-build-folder
-        path: ../frida/build
+        name: frida-server-arm64.xz
+        path: frida/build/frida-android-arm64/bin/frida-server.xz
+
 
       
